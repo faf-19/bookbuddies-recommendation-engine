@@ -41,7 +41,7 @@ export const mockBooks: Book[] = [
     title: "Dune",
     author: "Frank Herbert",
     coverImage: "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1555447414i/44767458.jpg",
-    description: "Set on the desert planet Arrakis, Dune is the story of the boy Paul Atreides, heir to a noble family tasked with ruling an inhospitable world where the only thing of value is the "spice" melange, a drug capable of extending life and enhancing consciousness.",
+    description: "Set on the desert planet Arrakis, Dune is the story of the boy Paul Atreides, heir to a noble family tasked with ruling an inhospitable world where the only thing of value is the 'spice' melange, a drug capable of extending life and enhancing consciousness.",
     genres: ["Science Fiction", "Fantasy", "Fiction"],
     rating: 4.7,
     releaseDate: "1965-08-01",
