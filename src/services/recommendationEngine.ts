@@ -1,8 +1,9 @@
 
 import { Book, User, RecommendationScore } from "../types";
 import { getAllBooks, getUserData } from "./api";
+import * as tf from "@tensorflow/tfjs";
 
-// Weights for different types of interactions
+// Weights for different types of interactions (traditional approach)
 const WEIGHTS = {
   PREFERRED_GENRE: 5,
   VIEWED: 1,
@@ -17,11 +18,249 @@ const calculateRecencyFactor = (timestamp: number): number => {
   return Math.max(1, 10 - daysAgo * WEIGHTS.RECENCY);
 };
 
+// Bi-LSTM model for recommendations
+class BiLSTMRecommender {
+  private model: tf.LayersModel | null = null;
+  private vocabSize: number = 1000; // Size of the vocabulary
+  private embeddingDim: number = 50; // Embedding dimension
+  private initialized: boolean = false;
+  private encoderMap: Map<string, number> = new Map(); // For encoding book IDs
+  private genreMap: Map<string, number> = new Map(); // For encoding genres
+
+  constructor() {
+    this.initializeModel();
+  }
+
+  private async initializeModel() {
+    try {
+      // Create the Bi-LSTM model
+      const model = tf.sequential();
+      
+      // Input layer
+      model.add(tf.layers.embedding({
+        inputDim: this.vocabSize,
+        outputDim: this.embeddingDim,
+        inputLength: 5, // Sequence length (history size)
+      }));
+      
+      // Bi-LSTM layer
+      model.add(tf.layers.bidirectional({
+        layer: tf.layers.lstm({
+          units: 32,
+          returnSequences: true,
+        }),
+        mergeMode: 'concat'
+      }));
+      
+      // Another Bi-LSTM layer
+      model.add(tf.layers.bidirectional({
+        layer: tf.layers.lstm({
+          units: 32,
+          returnSequences: false,
+        }),
+        mergeMode: 'concat'
+      }));
+      
+      // Dense output layer
+      model.add(tf.layers.dense({
+        units: this.vocabSize,
+        activation: 'softmax'
+      }));
+      
+      // Compile the model
+      model.compile({
+        optimizer: 'adam',
+        loss: 'categoricalCrossentropy',
+        metrics: ['accuracy']
+      });
+      
+      this.model = model;
+      console.log("Bi-LSTM model initialized");
+      this.initialized = true;
+    } catch (error) {
+      console.error("Error initializing Bi-LSTM model:", error);
+    }
+  }
+
+  // Prepare data for the model
+  private async prepareData(user: User, allBooks: Book[]) {
+    try {
+      // Create mappings for encoding
+      allBooks.forEach((book, index) => {
+        this.encoderMap.set(book.id, index);
+      });
+      
+      const allGenres = Array.from(new Set(allBooks.flatMap(book => book.genres)));
+      allGenres.forEach((genre, index) => {
+        this.genreMap.set(genre, index);
+      });
+
+      // Create training data from user history
+      const userHistory = [...user.history.viewed, ...user.history.rated]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 20); // Take most recent 20 interactions
+      
+      if (userHistory.length < 5) {
+        console.log("Not enough user history for Bi-LSTM model");
+        return null;
+      }
+
+      // Prepare sequences
+      const sequences = [];
+      const targets = [];
+      
+      for (let i = 0; i < userHistory.length - 5; i++) {
+        const sequence = userHistory.slice(i, i + 5).map(item => this.encoderMap.get(item.bookId) || 0);
+        const target = this.encoderMap.get(userHistory[i + 5]?.bookId) || 0;
+        
+        sequences.push(sequence);
+        targets.push(target);
+      }
+      
+      if (sequences.length === 0) {
+        console.log("No sequences could be generated");
+        return null;
+      }
+
+      // Convert to tensors
+      const xTensor = tf.tensor2d(sequences, [sequences.length, 5], 'int32');
+      const yTensor = tf.oneHot(tf.tensor1d(targets, 'int32'), this.vocabSize);
+      
+      return { xTensor, yTensor };
+    } catch (error) {
+      console.error("Error preparing data:", error);
+      return null;
+    }
+  }
+
+  // Train the model with user data
+  public async train(user: User, allBooks: Book[]) {
+    if (!this.initialized || !this.model) {
+      await this.initializeModel();
+    }
+    
+    try {
+      const data = await this.prepareData(user, allBooks);
+      if (!data) {
+        console.log("No training data available");
+        return false;
+      }
+      
+      const { xTensor, yTensor } = data;
+      
+      // Train the model
+      await this.model?.fit(xTensor, yTensor, {
+        epochs: 10,
+        batchSize: 32,
+        shuffle: true,
+        callbacks: {
+          onEpochEnd: (epoch, logs) => {
+            console.log(`Epoch ${epoch + 1}: loss = ${logs?.loss}, accuracy = ${logs?.acc}`);
+          }
+        }
+      });
+      
+      // Clean up tensors
+      xTensor.dispose();
+      yTensor.dispose();
+      
+      console.log("Bi-LSTM model trained successfully");
+      return true;
+    } catch (error) {
+      console.error("Error training Bi-LSTM model:", error);
+      return false;
+    }
+  }
+
+  // Generate recommendations
+  public async getRecommendations(user: User, allBooks: Book[], limit: number): Promise<RecommendationScore[]> {
+    if (!this.initialized || !this.model) {
+      console.log("Model not initialized, using fallback");
+      return [];
+    }
+    
+    try {
+      // Get user's recent interactions as input sequence
+      const recentInteractions = [...user.history.viewed, ...user.history.rated]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 5);
+      
+      if (recentInteractions.length < 5) {
+        console.log("Not enough recent interactions for prediction");
+        return [];
+      }
+      
+      // Convert to input tensor
+      const inputSequence = recentInteractions.map(item => this.encoderMap.get(item.bookId) || 0);
+      const inputTensor = tf.tensor2d([inputSequence], [1, 5], 'int32');
+      
+      // Generate predictions
+      const predictions = this.model.predict(inputTensor) as tf.Tensor;
+      const predictionData = await predictions.data();
+      
+      // Convert predictions to scores
+      const scores: RecommendationScore[] = [];
+      
+      for (let i = 0; i < predictionData.length; i++) {
+        // Skip books that are in the recent interactions
+        const bookId = Array.from(this.encoderMap.entries())
+          .find(([_, val]) => val === i)?.[0];
+          
+        if (bookId && !recentInteractions.some(item => item.bookId === bookId)) {
+          scores.push({
+            bookId,
+            score: predictionData[i]
+          });
+        }
+      }
+      
+      // Clean up tensors
+      inputTensor.dispose();
+      predictions.dispose();
+      
+      return scores
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+    } catch (error) {
+      console.error("Error generating recommendations with Bi-LSTM:", error);
+      return [];
+    }
+  }
+}
+
+// Create singleton instance
+const biLSTMRecommender = new BiLSTMRecommender();
+
 // Main recommendation algorithm
 export const getRecommendedBooks = async (limit: number = 10): Promise<Book[]> => {
   try {
     const user = await getUserData();
     const allBooks = await getAllBooks();
+    
+    // Try to use the Bi-LSTM model first
+    try {
+      // Train the model if we have enough data
+      if (user.history.viewed.length > 5 || user.history.rated.length > 5) {
+        console.log("Training Bi-LSTM model with user data");
+        await biLSTMRecommender.train(user, allBooks);
+      }
+      
+      // Get recommendations from the model
+      const modelScores = await biLSTMRecommender.getRecommendations(user, allBooks, limit);
+      
+      // If we got valid recommendations, use them
+      if (modelScores.length > 0) {
+        console.log("Using Bi-LSTM recommendations");
+        return modelScores.map(score => 
+          allBooks.find(book => book.id === score.bookId)!
+        );
+      }
+    } catch (error) {
+      console.error("Error using Bi-LSTM model, falling back to traditional approach:", error);
+    }
+    
+    // Fallback to traditional approach if ML model fails or lacks data
+    console.log("Using traditional recommendation approach");
     const scores: RecommendationScore[] = [];
     
     // If user has no preferences yet, return random books
