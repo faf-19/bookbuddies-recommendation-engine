@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { genres } from "../data/mockData";
 import { updateUserPreferences, getUserData } from "../services/api";
@@ -12,17 +11,21 @@ interface GenreSelectorProps {
 const GenreSelector = ({ onComplete }: GenreSelectorProps) => {
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     // Load any existing preferences
     const loadUserPreferences = async () => {
       try {
+        setIsLoading(true);
         const user = await getUserData();
         if (user.preferences.genres.length > 0) {
           setSelectedGenres(user.preferences.genres);
         }
       } catch (error) {
         console.error("Failed to load user preferences:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
     
@@ -100,34 +103,40 @@ const GenreSelector = ({ onComplete }: GenreSelectorProps) => {
         </motion.p>
       </div>
 
-      <motion.div 
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
-      >
-        {genres.map((genre) => (
-          <motion.div 
-            key={genre} 
-            variants={item}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <button
-              onClick={() => handleGenreClick(genre)}
-              className={cn(
-                "w-full py-3 px-4 rounded-xl border transition-all duration-300",
-                "hover:shadow-md focus:outline-none focus:ring-2 focus:ring-book-highlight",
-                selectedGenres.includes(genre)
-                  ? "bg-book-highlight text-white border-book-highlight"
-                  : "bg-white text-book-primary border-gray-200"
-              )}
+      {isLoading ? (
+        <div className="text-center py-12">
+          <p>Loading your preferences...</p>
+        </div>
+      ) : (
+        <motion.div 
+          variants={container}
+          initial="hidden"
+          animate="show"
+          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+        >
+          {genres.map((genre) => (
+            <motion.div 
+              key={genre} 
+              variants={item}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.98 }}
             >
-              {genre}
-            </button>
-          </motion.div>
-        ))}
-      </motion.div>
+              <button
+                onClick={() => handleGenreClick(genre)}
+                className={cn(
+                  "w-full py-3 px-4 rounded-xl border transition-all duration-300",
+                  "hover:shadow-md focus:outline-none focus:ring-2 focus:ring-book-highlight",
+                  selectedGenres.includes(genre)
+                    ? "bg-book-highlight text-white border-book-highlight"
+                    : "bg-white text-book-primary border-gray-200"
+                )}
+              >
+                {genre}
+              </button>
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

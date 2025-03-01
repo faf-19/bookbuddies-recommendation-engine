@@ -5,7 +5,7 @@ import { mockBooks } from "../data/mockData";
 
 // MongoDB connection string - in a real app, this would be in an environment variable
 const MONGODB_URI = "mongodb://localhost:27017";
-const DB_NAME = "bookBuddyDB";
+const DB_NAME = "BookComass";
 const BOOKS_COLLECTION = "books";
 const USERS_COLLECTION = "users";
 
@@ -47,13 +47,6 @@ const initializeDatabaseIfEmpty = async () => {
   }
 };
 
-// Handle MongoDB connection errors by falling back to localStorage
-const handleMongoError = (error: any) => {
-  console.error("MongoDB operation failed:", error);
-  console.log("Falling back to localStorage");
-  return null;
-};
-
 // Local storage fallback for when MongoDB is unavailable
 const LOCAL_STORAGE_KEY = "bookBuddyUser";
 
@@ -82,6 +75,37 @@ const initializeUser = (): User => {
   return newUser;
 };
 
+// Helper function to convert MongoDB document to User type
+const convertDocToUser = (doc: WithId<Document>): User => {
+  return {
+    id: doc._id.toString(),
+    preferences: {
+      genres: doc.preferences?.genres || [],
+      authors: doc.preferences?.authors || []
+    },
+    history: {
+      viewed: doc.history?.viewed || [],
+      rated: doc.history?.rated || [],
+      timeSpent: doc.history?.timeSpent || []
+    }
+  };
+};
+
+// Helper function to convert MongoDB document to Book type
+const convertDocToBook = (doc: WithId<Document>): Book => {
+  return {
+    id: doc._id.toString(),
+    title: doc.title,
+    author: doc.author,
+    coverImage: doc.coverImage,
+    description: doc.description,
+    genres: doc.genres,
+    rating: doc.rating,
+    releaseDate: doc.releaseDate,
+    pages: doc.pages
+  };
+};
+
 // Get user data
 export const getUserData = async (): Promise<User> => {
   try {
@@ -94,18 +118,7 @@ export const getUserData = async (): Promise<User> => {
     
     if (user) {
       // Convert MongoDB document to User type
-      return {
-        id: user._id.toString(),
-        preferences: {
-          genres: user.preferences?.genres || [],
-          authors: user.preferences?.authors || []
-        },
-        history: {
-          viewed: user.history?.viewed || [],
-          rated: user.history?.rated || [],
-          timeSpent: user.history?.timeSpent || []
-        }
-      };
+      return convertDocToUser(user);
     } else {
       // No user found, create a new one
       const newUser = initializeUser();
@@ -113,6 +126,7 @@ export const getUserData = async (): Promise<User> => {
       return newUser;
     }
   } catch (error) {
+    console.error("Failed to get user data:", error);
     // Fall back to localStorage if MongoDB fails
     return initializeUser();
   }
@@ -125,14 +139,25 @@ export const updateUserPreferences = async (genres: string[], authors: string[] 
     const db = client.db(DB_NAME);
     const user = await getUserData();
     
-    await db.collection(USERS_COLLECTION).updateOne(
-      { _id: user.id },
-      { $set: {
-        "preferences.genres": genres,
-        "preferences.authors": authors
-      }}
-    );
+    if (ObjectId.isValid(user.id)) {
+      await db.collection(USERS_COLLECTION).updateOne(
+        { _id: new ObjectId(user.id) },
+        { $set: {
+          "preferences.genres": genres,
+          "preferences.authors": authors
+        }}
+      );
+    } else {
+      await db.collection(USERS_COLLECTION).updateOne(
+        { _id: user.id },
+        { $set: {
+          "preferences.genres": genres,
+          "preferences.authors": authors
+        }}
+      );
+    }
   } catch (error) {
+    console.error("Failed to update user preferences:", error);
     // Fall back to localStorage if MongoDB fails
     const user = initializeUser();
     user.preferences.genres = genres;
@@ -149,16 +174,29 @@ export const recordBookView = async (bookId: string): Promise<void> => {
     const user = await getUserData();
     const now = Date.now();
     
-    await db.collection(USERS_COLLECTION).updateOne(
-      { _id: user.id },
-      { $push: {
-        "history.viewed": {
-          bookId,
-          timestamp: now
-        } as BookInteraction
-      }}
-    );
+    if (ObjectId.isValid(user.id)) {
+      await db.collection(USERS_COLLECTION).updateOne(
+        { _id: new ObjectId(user.id) },
+        { $push: {
+          "history.viewed": {
+            bookId,
+            timestamp: now
+          } as BookInteraction
+        }}
+      );
+    } else {
+      await db.collection(USERS_COLLECTION).updateOne(
+        { _id: user.id },
+        { $push: {
+          "history.viewed": {
+            bookId,
+            timestamp: now
+          } as BookInteraction
+        }}
+      );
+    }
   } catch (error) {
+    console.error("Failed to record book view:", error);
     // Fall back to localStorage if MongoDB fails
     const user = initializeUser();
     const now = Date.now();
@@ -183,29 +221,55 @@ export const recordBookRating = async (bookId: string, rating: number): Promise<
     // First, check if the book was already rated
     const existingRating = user.history.rated.find(r => r.bookId === bookId);
     
-    if (existingRating) {
-      // Update existing rating
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: user.id, "history.rated.bookId": bookId },
-        { $set: {
-          "history.rated.$.rating": rating,
-          "history.rated.$.timestamp": now
-        }}
-      );
+    if (ObjectId.isValid(user.id)) {
+      if (existingRating) {
+        // Update existing rating
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: new ObjectId(user.id), "history.rated.bookId": bookId },
+          { $set: {
+            "history.rated.$.rating": rating,
+            "history.rated.$.timestamp": now
+          }}
+        );
+      } else {
+        // Add new rating
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: new ObjectId(user.id) },
+          { $push: {
+            "history.rated": {
+              bookId,
+              rating,
+              timestamp: now
+            } as BookRating
+          }}
+        );
+      }
     } else {
-      // Add new rating
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: user.id },
-        { $push: {
-          "history.rated": {
-            bookId,
-            rating,
-            timestamp: now
-          } as BookRating
-        }}
-      );
+      if (existingRating) {
+        // Update existing rating
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: user.id, "history.rated.bookId": bookId },
+          { $set: {
+            "history.rated.$.rating": rating,
+            "history.rated.$.timestamp": now
+          }}
+        );
+      } else {
+        // Add new rating
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: user.id },
+          { $push: {
+            "history.rated": {
+              bookId,
+              rating,
+              timestamp: now
+            } as BookRating
+          }}
+        );
+      }
     }
   } catch (error) {
+    console.error("Failed to record book rating:", error);
     // Fall back to localStorage if MongoDB fails
     const user = initializeUser();
     const now = Date.now();
@@ -242,28 +306,53 @@ export const recordTimeSpent = async (bookId: string, duration: number): Promise
     // Check if we already have a record for this book
     const existingTimeSpent = user.history.timeSpent.find(t => t.bookId === bookId);
     
-    if (existingTimeSpent) {
-      // Update existing time spent
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: user.id, "history.timeSpent.bookId": bookId },
-        { $inc: { "history.timeSpent.$.duration": duration },
-          $set: { "history.timeSpent.$.timestamp": now }
-        }
-      );
+    if (ObjectId.isValid(user.id)) {
+      if (existingTimeSpent) {
+        // Update existing time spent
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: new ObjectId(user.id), "history.timeSpent.bookId": bookId },
+          { $inc: { "history.timeSpent.$.duration": duration },
+            $set: { "history.timeSpent.$.timestamp": now }
+          }
+        );
+      } else {
+        // Add new time spent record
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: new ObjectId(user.id) },
+          { $push: {
+            "history.timeSpent": {
+              bookId,
+              duration,
+              timestamp: now
+            } as BookTimeSpent
+          }}
+        );
+      }
     } else {
-      // Add new time spent record
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: user.id },
-        { $push: {
-          "history.timeSpent": {
-            bookId,
-            duration,
-            timestamp: now
-          } as BookTimeSpent
-        }}
-      );
+      if (existingTimeSpent) {
+        // Update existing time spent
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: user.id, "history.timeSpent.bookId": bookId },
+          { $inc: { "history.timeSpent.$.duration": duration },
+            $set: { "history.timeSpent.$.timestamp": now }
+          }
+        );
+      } else {
+        // Add new time spent record
+        await db.collection(USERS_COLLECTION).updateOne(
+          { _id: user.id },
+          { $push: {
+            "history.timeSpent": {
+              bookId,
+              duration,
+              timestamp: now
+            } as BookTimeSpent
+          }}
+        );
+      }
     }
   } catch (error) {
+    console.error("Failed to record time spent:", error);
     // Fall back to localStorage if MongoDB fails
     const user = initializeUser();
     const now = Date.now();
@@ -294,17 +383,7 @@ export const getAllBooks = async (): Promise<Book[]> => {
     
     const books = await db.collection(BOOKS_COLLECTION).find({}).toArray();
     // Convert MongoDB documents to Book types
-    return books.map(book => ({
-      id: book._id.toString(),
-      title: book.title,
-      author: book.author,
-      coverImage: book.coverImage,
-      description: book.description,
-      genres: book.genres,
-      rating: book.rating,
-      releaseDate: book.releaseDate,
-      pages: book.pages
-    })) as Book[];
+    return books.map(book => convertDocToBook(book));
   } catch (error) {
     console.error("Error fetching books from MongoDB:", error);
     // Fallback to mock data
@@ -318,21 +397,18 @@ export const getBookById = async (id: string): Promise<Book | undefined> => {
     const client = await connectToMongoDB();
     const db = client.db(DB_NAME);
     
-    const book = await db.collection(BOOKS_COLLECTION).findOne({ _id: id });
+    let query = {};
+    if (ObjectId.isValid(id)) {
+      query = { _id: new ObjectId(id) };
+    } else {
+      query = { _id: id };
+    }
+    
+    const book = await db.collection(BOOKS_COLLECTION).findOne(query);
     if (!book) return undefined;
     
     // Convert MongoDB document to Book type
-    return {
-      id: book._id.toString(),
-      title: book.title,
-      author: book.author,
-      coverImage: book.coverImage,
-      description: book.description,
-      genres: book.genres,
-      rating: book.rating,
-      releaseDate: book.releaseDate,
-      pages: book.pages
-    } as Book;
+    return convertDocToBook(book);
   } catch (error) {
     console.error("Error fetching book from MongoDB:", error);
     // Fallback to mock data

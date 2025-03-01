@@ -6,14 +6,18 @@ import { motion } from "framer-motion";
 
 const Header = () => {
   const [hasPreferences, setHasPreferences] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
     const loadUserPreferences = async () => {
       try {
+        setIsLoading(true);
         const user = await getUserData();
         setHasPreferences(user.preferences.genres.length > 0);
       } catch (error) {
         console.error("Failed to load user preferences:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
     
@@ -33,7 +37,7 @@ const Header = () => {
         </Link>
         
         <div className="flex items-center gap-4">
-          {hasPreferences && (
+          {!isLoading && hasPreferences && (
             <Link 
               to="/preferences" 
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
