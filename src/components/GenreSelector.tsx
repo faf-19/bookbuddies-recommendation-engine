@@ -15,10 +15,18 @@ const GenreSelector = ({ onComplete }: GenreSelectorProps) => {
 
   useEffect(() => {
     // Load any existing preferences
-    const user = getUserData();
-    if (user.preferences.genres.length > 0) {
-      setSelectedGenres(user.preferences.genres);
-    }
+    const loadUserPreferences = async () => {
+      try {
+        const user = await getUserData();
+        if (user.preferences.genres.length > 0) {
+          setSelectedGenres(user.preferences.genres);
+        }
+      } catch (error) {
+        console.error("Failed to load user preferences:", error);
+      }
+    };
+    
+    loadUserPreferences();
   }, []);
 
   const handleGenreClick = (genre: string) => {
@@ -31,19 +39,24 @@ const GenreSelector = ({ onComplete }: GenreSelectorProps) => {
     });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (selectedGenres.length === 0) {
       return;
     }
 
     setIsSubmitting(true);
-    updateUserPreferences(selectedGenres);
-    
-    // Simulate API call delay
-    setTimeout(() => {
+    try {
+      await updateUserPreferences(selectedGenres);
+      
+      // Simulate API call delay
+      setTimeout(() => {
+        setIsSubmitting(false);
+        onComplete();
+      }, 800);
+    } catch (error) {
+      console.error("Failed to update preferences:", error);
       setIsSubmitting(false);
-      onComplete();
-    }, 800);
+    }
   };
 
   const container = {

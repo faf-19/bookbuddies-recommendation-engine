@@ -1,5 +1,5 @@
 
-import { MongoClient, ObjectId } from "mongodb";
+import { MongoClient, ObjectId, Document, WithId } from "mongodb";
 import { Book, User, BookInteraction, BookRating, BookTimeSpent } from "../types";
 import { mockBooks } from "../data/mockData";
 
@@ -93,7 +93,19 @@ export const getUserData = async (): Promise<User> => {
     const user = await db.collection(USERS_COLLECTION).findOne({});
     
     if (user) {
-      return user as User;
+      // Convert MongoDB document to User type
+      return {
+        id: user._id.toString(),
+        preferences: {
+          genres: user.preferences?.genres || [],
+          authors: user.preferences?.authors || []
+        },
+        history: {
+          viewed: user.history?.viewed || [],
+          rated: user.history?.rated || [],
+          timeSpent: user.history?.timeSpent || []
+        }
+      };
     } else {
       // No user found, create a new one
       const newUser = initializeUser();
@@ -114,7 +126,7 @@ export const updateUserPreferences = async (genres: string[], authors: string[] 
     const user = await getUserData();
     
     await db.collection(USERS_COLLECTION).updateOne(
-      { id: user.id },
+      { _id: user.id },
       { $set: {
         "preferences.genres": genres,
         "preferences.authors": authors
@@ -138,12 +150,12 @@ export const recordBookView = async (bookId: string): Promise<void> => {
     const now = Date.now();
     
     await db.collection(USERS_COLLECTION).updateOne(
-      { id: user.id },
+      { _id: user.id },
       { $push: {
         "history.viewed": {
           bookId,
           timestamp: now
-        }
+        } as BookInteraction
       }}
     );
   } catch (error) {
@@ -174,7 +186,7 @@ export const recordBookRating = async (bookId: string, rating: number): Promise<
     if (existingRating) {
       // Update existing rating
       await db.collection(USERS_COLLECTION).updateOne(
-        { id: user.id, "history.rated.bookId": bookId },
+        { _id: user.id, "history.rated.bookId": bookId },
         { $set: {
           "history.rated.$.rating": rating,
           "history.rated.$.timestamp": now
@@ -183,13 +195,13 @@ export const recordBookRating = async (bookId: string, rating: number): Promise<
     } else {
       // Add new rating
       await db.collection(USERS_COLLECTION).updateOne(
-        { id: user.id },
+        { _id: user.id },
         { $push: {
           "history.rated": {
             bookId,
             rating,
             timestamp: now
-          }
+          } as BookRating
         }}
       );
     }
@@ -233,7 +245,7 @@ export const recordTimeSpent = async (bookId: string, duration: number): Promise
     if (existingTimeSpent) {
       // Update existing time spent
       await db.collection(USERS_COLLECTION).updateOne(
-        { id: user.id, "history.timeSpent.bookId": bookId },
+        { _id: user.id, "history.timeSpent.bookId": bookId },
         { $inc: { "history.timeSpent.$.duration": duration },
           $set: { "history.timeSpent.$.timestamp": now }
         }
@@ -241,13 +253,13 @@ export const recordTimeSpent = async (bookId: string, duration: number): Promise
     } else {
       // Add new time spent record
       await db.collection(USERS_COLLECTION).updateOne(
-        { id: user.id },
+        { _id: user.id },
         { $push: {
           "history.timeSpent": {
             bookId,
             duration,
             timestamp: now
-          }
+          } as BookTimeSpent
         }}
       );
     }
@@ -281,7 +293,18 @@ export const getAllBooks = async (): Promise<Book[]> => {
     const db = client.db(DB_NAME);
     
     const books = await db.collection(BOOKS_COLLECTION).find({}).toArray();
-    return books as Book[];
+    // Convert MongoDB documents to Book types
+    return books.map(book => ({
+      id: book._id.toString(),
+      title: book.title,
+      author: book.author,
+      coverImage: book.coverImage,
+      description: book.description,
+      genres: book.genres,
+      rating: book.rating,
+      releaseDate: book.releaseDate,
+      pages: book.pages
+    })) as Book[];
   } catch (error) {
     console.error("Error fetching books from MongoDB:", error);
     // Fallback to mock data
@@ -295,8 +318,21 @@ export const getBookById = async (id: string): Promise<Book | undefined> => {
     const client = await connectToMongoDB();
     const db = client.db(DB_NAME);
     
-    const book = await db.collection(BOOKS_COLLECTION).findOne({ id });
-    return book as Book | undefined;
+    const book = await db.collection(BOOKS_COLLECTION).findOne({ _id: id });
+    if (!book) return undefined;
+    
+    // Convert MongoDB document to Book type
+    return {
+      id: book._id.toString(),
+      title: book.title,
+      author: book.author,
+      coverImage: book.coverImage,
+      description: book.description,
+      genres: book.genres,
+      rating: book.rating,
+      releaseDate: book.releaseDate,
+      pages: book.pages
+    } as Book;
   } catch (error) {
     console.error("Error fetching book from MongoDB:", error);
     // Fallback to mock data

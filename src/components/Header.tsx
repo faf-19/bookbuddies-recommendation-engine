@@ -8,8 +8,16 @@ const Header = () => {
   const [hasPreferences, setHasPreferences] = useState(false);
   
   useEffect(() => {
-    const user = getUserData();
-    setHasPreferences(user.preferences.genres.length > 0);
+    const loadUserPreferences = async () => {
+      try {
+        const user = await getUserData();
+        setHasPreferences(user.preferences.genres.length > 0);
+      } catch (error) {
+        console.error("Failed to load user preferences:", error);
+      }
+    };
+    
+    loadUserPreferences();
   }, []);
 
   return (
