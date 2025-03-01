@@ -9,31 +9,55 @@ import Header from "../components/Header";
 import Footer from "../components/Footer";
 import BookGrid from "../components/BookGrid";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 const Index = () => {
   const navigate = useNavigate();
   const [showPreferences, setShowPreferences] = useState(false);
   const [recommendedBooks, setRecommendedBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const user = getUserData();
+    const checkUserPreferences = async () => {
+      try {
+        setLoading(true);
+        const user = await getUserData();
+        
+        // Check if user has preferences
+        if (user.preferences.genres.length === 0) {
+          setShowPreferences(true);
+        } else {
+          // User has preferences, load recommendations
+          loadRecommendations();
+        }
+      } catch (error) {
+        console.error("Error checking user preferences:", error);
+        setError("Failed to load user data. Please try again later.");
+        toast.error("Failed to connect to database. Using local data instead.");
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    // Check if user has preferences
-    if (user.preferences.genres.length === 0) {
-      setShowPreferences(true);
-    } else {
-      // User has preferences, load recommendations
-      loadRecommendations();
-    }
+    checkUserPreferences();
   }, []);
   
-  const loadRecommendations = () => {
-    setLoading(true);
-    // Get personalized recommendations
-    const recommendations = getRecommendedBooks(8);
-    setRecommendedBooks(recommendations);
-    setLoading(false);
+  const loadRecommendations = async () => {
+    try {
+      setLoading(true);
+      // Get personalized recommendations
+      const recommendations = await getRecommendedBooks(8);
+      setRecommendedBooks(recommendations);
+      setError(null);
+    } catch (error) {
+      console.error("Error loading recommendations:", error);
+      setError("Failed to load recommendations. Please try again later.");
+      toast.error("Failed to load recommendations. Using local data instead.");
+      setRecommendedBooks([]);
+    } finally {
+      setLoading(false);
+    }
   };
   
   const handlePreferencesComplete = () => {
@@ -65,6 +89,16 @@ const Index = () => {
         {loading ? (
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-book-primary"></div>
+          </div>
+        ) : error ? (
+          <div className="text-center py-8">
+            <p className="text-red-500 mb-4">{error}</p>
+            <button
+              onClick={() => loadRecommendations()}
+              className="px-4 py-2 bg-book-primary text-white rounded-lg hover:bg-book-highlight"
+            >
+              Try Again
+            </button>
           </div>
         ) : (
           <>

@@ -13,6 +13,7 @@ const BookDetail = () => {
   const navigate = useNavigate();
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [viewStartTime, setViewStartTime] = useState<number>(Date.now());
   const [userRating, setUserRating] = useState<number | null>(null);
 
@@ -22,19 +23,28 @@ const BookDetail = () => {
       return;
     }
 
-    const loadBook = () => {
-      setLoading(true);
-      const foundBook = getBookById(id);
-      
-      if (foundBook) {
-        setBook(foundBook);
-        recordBookView(id);
-        setViewStartTime(Date.now());
-      } else {
-        navigate("/not-found");
+    const loadBook = async () => {
+      try {
+        setLoading(true);
+        const foundBook = await getBookById(id);
+        
+        if (foundBook) {
+          setBook(foundBook);
+          await recordBookView(id);
+          setViewStartTime(Date.now());
+          setError(null);
+        } else {
+          setError("Book not found");
+          toast.error("Book not found");
+          navigate("/not-found");
+        }
+      } catch (error) {
+        console.error("Error loading book:", error);
+        setError("Failed to load book details");
+        toast.error("Failed to connect to database. Using local data instead.");
+      } finally {
+        setLoading(false);
       }
-      
-      setLoading(false);
     };
 
     loadBook();
@@ -44,17 +54,23 @@ const BookDetail = () => {
       // Record time spent when leaving
       if (id && viewStartTime) {
         const timeSpent = Date.now() - viewStartTime;
-        recordTimeSpent(id, timeSpent);
+        recordTimeSpent(id, timeSpent)
+          .catch(err => console.error("Error recording time spent:", err));
       }
     };
   }, [id, navigate]);
 
-  const handleRateBook = (rating: number) => {
+  const handleRateBook = async (rating: number) => {
     if (!book) return;
     
-    setUserRating(rating);
-    recordBookRating(book.id, rating);
-    toast.success("Thanks for rating this book!");
+    try {
+      setUserRating(rating);
+      await recordBookRating(book.id, rating);
+      toast.success("Thanks for rating this book!");
+    } catch (error) {
+      console.error("Error rating book:", error);
+      toast.error("Failed to save your rating. Please try again.");
+    }
   };
 
   if (loading) {
@@ -69,8 +85,22 @@ const BookDetail = () => {
     );
   }
 
-  if (!book) {
-    return null;
+  if (error || !book) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-grow flex flex-col justify-center items-center">
+          <h2 className="text-2xl font-bold mb-4">{error || "Something went wrong"}</h2>
+          <button
+            onClick={() => navigate(-1)}
+            className="px-4 py-2 bg-book-primary text-white rounded-lg"
+          >
+            Go Back
+          </button>
+        </main>
+        <Footer />
+      </div>
+    );
   }
 
   return (

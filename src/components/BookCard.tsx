@@ -19,7 +19,8 @@ const BookCard = ({ book, className, priority = false }: BookCardProps) => {
 
   // Record view when component mounts
   useEffect(() => {
-    recordBookView(book.id);
+    recordBookView(book.id)
+      .catch(err => console.error("Error recording book view:", err));
   }, [book.id]);
 
   // Track time spent viewing this book
@@ -35,7 +36,8 @@ const BookCard = ({ book, className, priority = false }: BookCardProps) => {
           else if (viewStartTime !== null) {
             const timeSpent = Date.now() - viewStartTime;
             if (timeSpent > 500) { // Only record if user spent over 500ms
-              recordTimeSpent(book.id, timeSpent);
+              recordTimeSpent(book.id, timeSpent)
+                .catch(err => console.error("Error recording time spent:", err));
             }
             setViewStartTime(null);
           }
@@ -57,7 +59,8 @@ const BookCard = ({ book, className, priority = false }: BookCardProps) => {
       if (viewStartTime !== null) {
         const timeSpent = Date.now() - viewStartTime;
         if (timeSpent > 500) {
-          recordTimeSpent(book.id, timeSpent);
+          recordTimeSpent(book.id, timeSpent)
+            .catch(err => console.error("Error recording time spent on unmount:", err));
         }
       }
     };

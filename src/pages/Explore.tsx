@@ -9,10 +9,12 @@ import Footer from "../components/Footer";
 import BookGrid from "../components/BookGrid";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const Explore = () => {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -20,22 +22,29 @@ const Explore = () => {
     loadBooks();
   }, [selectedGenre]);
 
-  const loadBooks = () => {
-    setLoading(true);
-    
-    // Get books filtered by genre if one is selected
-    setTimeout(() => {
+  const loadBooks = async () => {
+    try {
+      setLoading(true);
+      
+      // Get books filtered by genre if one is selected
       let filteredBooks: Book[];
       
       if (selectedGenre) {
-        filteredBooks = getBooksByGenre(selectedGenre);
+        filteredBooks = await getBooksByGenre(selectedGenre);
       } else {
-        filteredBooks = getAllBooks();
+        filteredBooks = await getAllBooks();
       }
       
       setBooks(filteredBooks);
+      setError(null);
+    } catch (error) {
+      console.error("Error loading books:", error);
+      setError("Failed to load books. Please try again later.");
+      toast.error("Failed to connect to database. Using local data instead.");
+      setBooks([]);
+    } finally {
       setLoading(false);
-    }, 300); // Small delay for animation
+    }
   };
   
   const handleGenreClick = (genre: string) => {
@@ -120,6 +129,16 @@ const Explore = () => {
         {loading ? (
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-book-primary"></div>
+          </div>
+        ) : error ? (
+          <div className="text-center py-8">
+            <p className="text-red-500 mb-4">{error}</p>
+            <button
+              onClick={() => loadBooks()}
+              className="px-4 py-2 bg-book-primary text-white rounded-lg hover:bg-book-highlight"
+            >
+              Try Again
+            </button>
           </div>
         ) : (
           <BookGrid 

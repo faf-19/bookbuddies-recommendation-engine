@@ -18,73 +18,79 @@ const calculateRecencyFactor = (timestamp: number): number => {
 };
 
 // Main recommendation algorithm
-export const getRecommendedBooks = (limit: number = 10): Book[] => {
-  const user = getUserData();
-  const allBooks = getAllBooks();
-  const scores: RecommendationScore[] = [];
-  
-  // If user has no preferences yet, return random books
-  if (user.preferences.genres.length === 0 && 
-      user.history.viewed.length === 0 && 
-      user.history.rated.length === 0) {
-    const shuffled = [...allBooks].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, limit);
+export const getRecommendedBooks = async (limit: number = 10): Promise<Book[]> => {
+  try {
+    const user = await getUserData();
+    const allBooks = await getAllBooks();
+    const scores: RecommendationScore[] = [];
+    
+    // If user has no preferences yet, return random books
+    if (user.preferences.genres.length === 0 && 
+        user.history.viewed.length === 0 && 
+        user.history.rated.length === 0) {
+      const shuffled = [...allBooks].sort(() => 0.5 - Math.random());
+      return shuffled.slice(0, limit);
+    }
+    
+    // Calculate score for each book
+    allBooks.forEach(book => {
+      let score = 0;
+      
+      // Score based on preferred genres
+      const genreMatches = book.genres.filter(genre => 
+        user.preferences.genres.includes(genre)
+      ).length;
+      score += genreMatches * WEIGHTS.PREFERRED_GENRE;
+      
+      // Score based on view history
+      const views = user.history.viewed.filter(view => view.bookId === book.id);
+      views.forEach(view => {
+        score += WEIGHTS.VIEWED * calculateRecencyFactor(view.timestamp);
+      });
+      
+      // Score based on time spent
+      const timeSpent = user.history.timeSpent.find(time => time.bookId === book.id);
+      if (timeSpent) {
+        // Convert ms to minutes for calculation
+        const minutesSpent = timeSpent.duration / (1000 * 60);
+        score += minutesSpent * WEIGHTS.TIME_SPENT * calculateRecencyFactor(timeSpent.timestamp);
+      }
+      
+      // Score based on ratings
+      const rating = user.history.rated.find(rated => rated.bookId === book.id);
+      if (rating) {
+        score += rating.rating * WEIGHTS.RATING * calculateRecencyFactor(rating.timestamp);
+      }
+      
+      // Avoid recommending books the user has already rated highly
+      if (rating && rating.rating > 4) {
+        score = score * 0.5; // Reduce score to avoid re-recommending
+      }
+      
+      scores.push({
+        bookId: book.id,
+        score
+      });
+    });
+    
+    // Sort by score and get top books
+    const topScores = scores
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+    
+    // Map scores back to book objects
+    return topScores.map(score => 
+      allBooks.find(book => book.id === score.bookId)!
+    );
+  } catch (error) {
+    console.error("Error getting recommended books:", error);
+    // Return empty array if there's an error
+    return [];
   }
-  
-  // Calculate score for each book
-  allBooks.forEach(book => {
-    let score = 0;
-    
-    // Score based on preferred genres
-    const genreMatches = book.genres.filter(genre => 
-      user.preferences.genres.includes(genre)
-    ).length;
-    score += genreMatches * WEIGHTS.PREFERRED_GENRE;
-    
-    // Score based on view history
-    const views = user.history.viewed.filter(view => view.bookId === book.id);
-    views.forEach(view => {
-      score += WEIGHTS.VIEWED * calculateRecencyFactor(view.timestamp);
-    });
-    
-    // Score based on time spent
-    const timeSpent = user.history.timeSpent.find(time => time.bookId === book.id);
-    if (timeSpent) {
-      // Convert ms to minutes for calculation
-      const minutesSpent = timeSpent.duration / (1000 * 60);
-      score += minutesSpent * WEIGHTS.TIME_SPENT * calculateRecencyFactor(timeSpent.timestamp);
-    }
-    
-    // Score based on ratings
-    const rating = user.history.rated.find(rated => rated.bookId === book.id);
-    if (rating) {
-      score += rating.rating * WEIGHTS.RATING * calculateRecencyFactor(rating.timestamp);
-    }
-    
-    // Avoid recommending books the user has already rated highly
-    if (rating && rating.rating > 4) {
-      score = score * 0.5; // Reduce score to avoid re-recommending
-    }
-    
-    scores.push({
-      bookId: book.id,
-      score
-    });
-  });
-  
-  // Sort by score and get top books
-  const topScores = scores
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-  
-  // Map scores back to book objects
-  return topScores.map(score => 
-    allBooks.find(book => book.id === score.bookId)!
-  );
 };
 
 // Get books filtered by genre
-export const getBooksByGenre = (genre: string): Book[] => {
-  const allBooks = getAllBooks();
+export const getBooksByGenre = async (genre: string): Promise<Book[]> => {
+  const allBooks = await getAllBooks();
   return allBooks.filter(book => book.genres.includes(genre));
 };
