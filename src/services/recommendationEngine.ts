@@ -33,6 +33,7 @@ class BiLSTMRecommender {
 
   private async initializeModel() {
     try {
+      console.log("Initializing Bi-LSTM model");
       // Create the Bi-LSTM model
       const model = tf.sequential();
       
@@ -85,6 +86,7 @@ class BiLSTMRecommender {
   // Prepare data for the model
   private async prepareData(user: User, allBooks: Book[]) {
     try {
+      console.log("Preparing data for Bi-LSTM model");
       // Create mappings for encoding
       allBooks.forEach((book, index) => {
         this.encoderMap.set(book.id, index);
@@ -140,6 +142,7 @@ class BiLSTMRecommender {
     }
     
     try {
+      console.log("Training Bi-LSTM model");
       const data = await this.prepareData(user, allBooks);
       if (!data) {
         console.log("No training data available");
@@ -180,6 +183,7 @@ class BiLSTMRecommender {
     }
     
     try {
+      console.log("Generating recommendations with Bi-LSTM model");
       // Get user's recent interactions as input sequence
       const recentInteractions = [...user.history.viewed, ...user.history.rated]
         .sort((a, b) => b.timestamp - a.timestamp)
@@ -234,6 +238,7 @@ const biLSTMRecommender = new BiLSTMRecommender();
 // Main recommendation algorithm
 export const getRecommendedBooks = async (limit: number = 10): Promise<Book[]> => {
   try {
+    console.log("Getting recommended books, limit:", limit);
     const user = await getUserData();
     const allBooks = await getAllBooks();
     
@@ -251,9 +256,11 @@ export const getRecommendedBooks = async (limit: number = 10): Promise<Book[]> =
       // If we got valid recommendations, use them
       if (modelScores.length > 0) {
         console.log("Using Bi-LSTM recommendations");
-        return modelScores.map(score => 
-          allBooks.find(book => book.id === score.bookId)!
-        );
+        const recommendedBooks = modelScores.map(score => 
+          allBooks.find(book => book.id === score.bookId)
+        ).filter(book => book !== undefined) as Book[];
+        console.log("Recommendations from Bi-LSTM model:", recommendedBooks.length);
+        return recommendedBooks;
       }
     } catch (error) {
       console.error("Error using Bi-LSTM model, falling back to traditional approach:", error);
@@ -267,6 +274,7 @@ export const getRecommendedBooks = async (limit: number = 10): Promise<Book[]> =
     if (user.preferences.genres.length === 0 && 
         user.history.viewed.length === 0 && 
         user.history.rated.length === 0) {
+      console.log("User has no history, returning random books");
       const shuffled = [...allBooks].sort(() => 0.5 - Math.random());
       return shuffled.slice(0, limit);
     }
@@ -318,13 +326,18 @@ export const getRecommendedBooks = async (limit: number = 10): Promise<Book[]> =
       .slice(0, limit);
     
     // Map scores back to book objects
-    return topScores.map(score => 
-      allBooks.find(book => book.id === score.bookId)!
-    );
+    const recommendedBooks = topScores.map(score => 
+      allBooks.find(book => book.id === score.bookId)
+    ).filter(book => book !== undefined) as Book[];
+    
+    console.log("Recommendations from traditional approach:", recommendedBooks.length);
+    return recommendedBooks;
   } catch (error) {
     console.error("Error getting recommended books:", error);
-    // Return empty array if there's an error
-    return [];
+    // Return random books if there's an error
+    const allBooks = await getAllBooks();
+    const shuffled = [...allBooks].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, limit);
   }
 };
 

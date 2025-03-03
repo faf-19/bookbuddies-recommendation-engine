@@ -12,49 +12,31 @@ const USERS_COLLECTION = "users";
 // MongoDB client instance
 let client: MongoClient | null = null;
 
-// Initialize MongoDB connection
-const connectToMongoDB = async (): Promise<MongoClient> => {
-  if (client) return client;
-  
-  try {
-    client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    console.log("Connected to MongoDB");
-    
-    // Initialize the database with mock data if it's empty
-    await initializeDatabaseIfEmpty();
-    
-    return client;
-  } catch (error) {
-    console.error("Failed to connect to MongoDB:", error);
-    // Fallback to mock data if connection fails
-    throw error;
-  }
+// Since we're running in the browser where MongoDB can't connect directly,
+// we'll use the mock data instead of trying to connect to a real MongoDB instance
+const connectToMongoDB = async (): Promise<MongoClient | null> => {
+  console.log("Using mock data instead of MongoDB connection");
+  return null;
 };
 
 // Initialize database with mock data if collections are empty
 const initializeDatabaseIfEmpty = async () => {
-  if (!client) return;
-  
-  const db = client.db(DB_NAME);
-  
-  // Check if books collection is empty
-  const booksCount = await db.collection(BOOKS_COLLECTION).countDocuments();
-  if (booksCount === 0) {
-    // Insert mock books
-    await db.collection(BOOKS_COLLECTION).insertMany(mockBooks);
-    console.log("Initialized books collection with mock data");
-  }
+  // In browser environment, this is a no-op
+  console.log("Mock initialization");
 };
 
-// Local storage fallback for when MongoDB is unavailable
+// Local storage fallback for user data
 const LOCAL_STORAGE_KEY = "bookBuddyUser";
 
 // Initialize user from localStorage or create new user
 const initializeUser = (): User => {
-  const storedUser = localStorage.getItem(LOCAL_STORAGE_KEY);
-  if (storedUser) {
-    return JSON.parse(storedUser);
+  try {
+    const storedUser = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (storedUser) {
+      return JSON.parse(storedUser);
+    }
+  } catch (error) {
+    console.error("Error reading from localStorage:", error);
   }
   
   // Create new user
@@ -71,7 +53,11 @@ const initializeUser = (): User => {
     }
   };
   
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newUser));
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newUser));
+  } catch (error) {
+    console.error("Error writing to localStorage:", error);
+  }
   return newUser;
 };
 
@@ -109,22 +95,8 @@ const convertDocToBook = (doc: WithId<Document>): Book => {
 // Get user data
 export const getUserData = async (): Promise<User> => {
   try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
-    
-    // For simplicity, we're getting the first user
-    // In a real app, you'd use authentication to identify the current user
-    const user = await db.collection(USERS_COLLECTION).findOne({});
-    
-    if (user) {
-      // Convert MongoDB document to User type
-      return convertDocToUser(user);
-    } else {
-      // No user found, create a new one
-      const newUser = initializeUser();
-      await db.collection(USERS_COLLECTION).insertOne(newUser);
-      return newUser;
-    }
+    // Skip MongoDB connection attempt in browser and use localStorage directly
+    return initializeUser();
   } catch (error) {
     console.error("Failed to get user data:", error);
     // Fall back to localStorage if MongoDB fails
@@ -135,36 +107,19 @@ export const getUserData = async (): Promise<User> => {
 // Update user preferences
 export const updateUserPreferences = async (genres: string[], authors: string[] = []): Promise<void> => {
   try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
+    // In browser environment, update localStorage directly
     const user = await getUserData();
-    
-    const query = ObjectId.isValid(user.id) 
-      ? { _id: new ObjectId(user.id) } 
-      : { _id: user.id };
-    
-    await db.collection(USERS_COLLECTION).updateOne(
-      query,
-      { $set: {
-        "preferences.genres": genres,
-        "preferences.authors": authors
-      }}
-    );
-  } catch (error) {
-    console.error("Failed to update user preferences:", error);
-    // Fall back to localStorage if MongoDB fails
-    const user = initializeUser();
     user.preferences.genres = genres;
     user.preferences.authors = authors;
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+  } catch (error) {
+    console.error("Failed to update user preferences:", error);
   }
 };
 
 // Record book view
 export const recordBookView = async (bookId: string): Promise<void> => {
   try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
     const user = await getUserData();
     const now = Date.now();
     
@@ -173,74 +128,17 @@ export const recordBookView = async (bookId: string): Promise<void> => {
       timestamp: now
     };
     
-    const query = ObjectId.isValid(user.id) 
-      ? { _id: new ObjectId(user.id) } 
-      : { _id: user.id };
-    
-    await db.collection(USERS_COLLECTION).updateOne(
-      query,
-      { $push: {
-        "history.viewed": bookInteraction
-      }}
-    );
+    user.history.viewed.push(bookInteraction);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
   } catch (error) {
     console.error("Failed to record book view:", error);
-    // Fall back to localStorage if MongoDB fails
-    const user = initializeUser();
-    const now = Date.now();
-    
-    user.history.viewed.push({
-      bookId,
-      timestamp: now
-    });
-    
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
   }
 };
 
 // Record book rating
 export const recordBookRating = async (bookId: string, rating: number): Promise<void> => {
   try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
     const user = await getUserData();
-    const now = Date.now();
-    
-    // First, check if the book was already rated
-    const existingRating = user.history.rated.find(r => r.bookId === bookId);
-    
-    if (existingRating) {
-      // Update existing rating
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: ObjectId.isValid(user.id) ? new ObjectId(user.id) : user.id, "history.rated.bookId": bookId },
-        { $set: {
-          "history.rated.$.rating": rating,
-          "history.rated.$.timestamp": now
-        }}
-      );
-    } else {
-      // Add new rating
-      const bookRating: BookRating = {
-        bookId,
-        rating,
-        timestamp: now
-      };
-      
-      const query = ObjectId.isValid(user.id) 
-        ? { _id: new ObjectId(user.id) } 
-        : { _id: user.id };
-        
-      await db.collection(USERS_COLLECTION).updateOne(
-        query,
-        { $push: {
-          "history.rated": bookRating
-        }}
-      );
-    }
-  } catch (error) {
-    console.error("Failed to record book rating:", error);
-    // Fall back to localStorage if MongoDB fails
-    const user = initializeUser();
     const now = Date.now();
     
     // Check if book was already rated and update if so
@@ -261,51 +159,15 @@ export const recordBookRating = async (bookId: string, rating: number): Promise<
     }
     
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+  } catch (error) {
+    console.error("Failed to record book rating:", error);
   }
 };
 
 // Record time spent on book
 export const recordTimeSpent = async (bookId: string, duration: number): Promise<void> => {
   try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
     const user = await getUserData();
-    const now = Date.now();
-    
-    // Check if we already have a record for this book
-    const existingTimeSpent = user.history.timeSpent.find(t => t.bookId === bookId);
-    
-    if (existingTimeSpent) {
-      // Update existing time spent
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: ObjectId.isValid(user.id) ? new ObjectId(user.id) : user.id, "history.timeSpent.bookId": bookId },
-        { $inc: { "history.timeSpent.$.duration": duration },
-          $set: { "history.timeSpent.$.timestamp": now }
-        }
-      );
-    } else {
-      // Add new time spent record
-      const bookTimeSpent: BookTimeSpent = {
-        bookId,
-        duration,
-        timestamp: now
-      };
-      
-      const query = ObjectId.isValid(user.id) 
-        ? { _id: new ObjectId(user.id) } 
-        : { _id: user.id };
-      
-      await db.collection(USERS_COLLECTION).updateOne(
-        query,
-        { $push: {
-          "history.timeSpent": bookTimeSpent
-        }}
-      );
-    }
-  } catch (error) {
-    console.error("Failed to record time spent:", error);
-    // Fall back to localStorage if MongoDB fails
-    const user = initializeUser();
     const now = Date.now();
     
     // Check if we already have a record for this book and update
@@ -323,46 +185,21 @@ export const recordTimeSpent = async (bookId: string, duration: number): Promise
     }
     
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+  } catch (error) {
+    console.error("Failed to record time spent:", error);
   }
 };
 
 // Get all books from MongoDB
 export const getAllBooks = async (): Promise<Book[]> => {
-  try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
-    
-    const books = await db.collection(BOOKS_COLLECTION).find({}).toArray();
-    // Convert MongoDB documents to Book types
-    return books.map(book => convertDocToBook(book));
-  } catch (error) {
-    console.error("Error fetching books from MongoDB:", error);
-    // Fallback to mock data
-    return mockBooks;
-  }
+  console.log("Getting all books from mock data");
+  // Use mock data directly instead of trying to query MongoDB
+  return mockBooks;
 };
 
 // Get a single book by ID
 export const getBookById = async (id: string): Promise<Book | undefined> => {
-  try {
-    const client = await connectToMongoDB();
-    const db = client.db(DB_NAME);
-    
-    let query = {};
-    if (ObjectId.isValid(id)) {
-      query = { _id: new ObjectId(id) };
-    } else {
-      query = { _id: id };
-    }
-    
-    const book = await db.collection(BOOKS_COLLECTION).findOne(query);
-    if (!book) return undefined;
-    
-    // Convert MongoDB document to Book type
-    return convertDocToBook(book);
-  } catch (error) {
-    console.error("Error fetching book from MongoDB:", error);
-    // Fallback to mock data
-    return mockBooks.find(book => book.id === id);
-  }
+  console.log("Getting book by ID from mock data:", id);
+  // Use mock data directly
+  return mockBooks.find(book => book.id === id);
 };

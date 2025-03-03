@@ -10,6 +10,7 @@ import Footer from "../components/Footer";
 import BookGrid from "../components/BookGrid";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { getAllBooks } from "../services/api";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -22,19 +23,25 @@ const Index = () => {
     const checkUserPreferences = async () => {
       try {
         setLoading(true);
+        console.log("Checking user preferences");
         const user = await getUserData();
+        console.log("User preferences:", user.preferences);
         
         // Check if user has preferences
         if (user.preferences.genres.length === 0) {
+          console.log("User has no preferences, showing genre selector");
           setShowPreferences(true);
         } else {
           // User has preferences, load recommendations
+          console.log("User has preferences, loading recommendations");
           loadRecommendations();
         }
       } catch (error) {
         console.error("Error checking user preferences:", error);
         setError("Failed to load user data. Please try again later.");
-        toast.error("Failed to connect to database. Using local data instead.");
+        toast.error("Failed to load user data. Using default recommendations instead.");
+        // Load fallback books
+        loadFallbackBooks();
       } finally {
         setLoading(false);
       }
@@ -46,17 +53,42 @@ const Index = () => {
   const loadRecommendations = async () => {
     try {
       setLoading(true);
+      console.log("Loading recommendations");
       // Get personalized recommendations
       const recommendations = await getRecommendedBooks(8);
-      setRecommendedBooks(recommendations);
-      setError(null);
+      console.log("Received recommendations:", recommendations.length);
+      
+      if (recommendations.length === 0) {
+        // If no recommendations, fall back to random books
+        console.log("No recommendations received, using fallback");
+        await loadFallbackBooks();
+      } else {
+        setRecommendedBooks(recommendations);
+        setError(null);
+      }
     } catch (error) {
       console.error("Error loading recommendations:", error);
-      setError("Failed to load recommendations. Please try again later.");
-      toast.error("Failed to load recommendations. Using local data instead.");
-      setRecommendedBooks([]);
+      setError("Failed to load recommendations. Using random books instead.");
+      toast.error("Failed to load recommendations. Using random books instead.");
+      await loadFallbackBooks();
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const loadFallbackBooks = async () => {
+    try {
+      console.log("Loading fallback books");
+      const allBooks = await getAllBooks();
+      // Shuffle and take 8 random books
+      const randomBooks = [...allBooks]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 8);
+      console.log("Loaded fallback books:", randomBooks.length);
+      setRecommendedBooks(randomBooks);
+    } catch (err) {
+      console.error("Error loading fallback books:", err);
+      setRecommendedBooks([]);
     }
   };
   
@@ -90,7 +122,7 @@ const Index = () => {
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-book-primary"></div>
           </div>
-        ) : error ? (
+        ) : error && recommendedBooks.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-red-500 mb-4">{error}</p>
             <button
