@@ -27,6 +27,18 @@ const Index = () => {
         const user = await getUserData();
         console.log("User preferences:", user.preferences);
         
+        // First, try to load all books regardless of preferences
+        // This ensures we always display something even if recommendations fail
+        const allBooks = await getAllBooks();
+        console.log("Loaded all books:", allBooks.length);
+        
+        if (allBooks.length === 0) {
+          setError("No books found in database. Please add books to see recommendations.");
+          toast.error("No books found in database");
+          setLoading(false);
+          return;
+        }
+        
         // Check if user has preferences
         if (user.preferences.genres.length === 0) {
           console.log("User has no preferences, showing genre selector");
@@ -34,14 +46,14 @@ const Index = () => {
         } else {
           // User has preferences, load recommendations
           console.log("User has preferences, loading recommendations");
-          loadRecommendations();
+          await loadRecommendations();
         }
       } catch (error) {
         console.error("Error checking user preferences:", error);
         setError("Failed to load user data. Please try again later.");
         toast.error("Failed to load user data. Using default recommendations instead.");
         // Load fallback books
-        loadFallbackBooks();
+        await loadFallbackBooks();
       } finally {
         setLoading(false);
       }
@@ -54,6 +66,18 @@ const Index = () => {
     try {
       setLoading(true);
       console.log("Loading recommendations");
+      
+      // Get all books first to make sure we have something to display
+      const allBooks = await getAllBooks();
+      console.log("All books available:", allBooks.length);
+      
+      if (allBooks.length === 0) {
+        setError("No books found in database. Please add books to see recommendations.");
+        toast.error("No books found in database");
+        setLoading(false);
+        return;
+      }
+      
       // Get personalized recommendations
       const recommendations = await getRecommendedBooks(8);
       console.log("Received recommendations:", recommendations.length);
@@ -80,15 +104,24 @@ const Index = () => {
     try {
       console.log("Loading fallback books");
       const allBooks = await getAllBooks();
+      console.log("Loaded fallback books from database:", allBooks.length);
+      
+      if (allBooks.length === 0) {
+        setError("No books found in database. Please add books to see recommendations.");
+        toast.error("No books found in database");
+        return;
+      }
+      
       // Shuffle and take 8 random books
       const randomBooks = [...allBooks]
         .sort(() => Math.random() - 0.5)
         .slice(0, 8);
-      console.log("Loaded fallback books:", randomBooks.length);
+      console.log("Selected random books:", randomBooks.length);
       setRecommendedBooks(randomBooks);
     } catch (err) {
       console.error("Error loading fallback books:", err);
       setRecommendedBooks([]);
+      setError("Failed to load any books from database.");
     }
   };
   
@@ -122,7 +155,7 @@ const Index = () => {
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-book-primary"></div>
           </div>
-        ) : error && recommendedBooks.length === 0 ? (
+        ) : error ? (
           <div className="text-center py-8">
             <p className="text-red-500 mb-4">{error}</p>
             <button
@@ -130,6 +163,16 @@ const Index = () => {
               className="px-4 py-2 bg-book-primary text-white rounded-lg hover:bg-book-highlight"
             >
               Try Again
+            </button>
+          </div>
+        ) : recommendedBooks.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-amber-500 mb-4">No books found to display. Please check your database connection.</p>
+            <button
+              onClick={() => loadFallbackBooks()}
+              className="px-4 py-2 bg-book-primary text-white rounded-lg hover:bg-book-highlight"
+            >
+              Try Loading Books Again
             </button>
           </div>
         ) : (
