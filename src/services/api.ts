@@ -3,26 +3,41 @@ import { MongoClient, ObjectId, Document, WithId } from "mongodb";
 import { Book, User, BookInteraction, BookRating, BookTimeSpent } from "../types";
 import { mockBooks } from "../data/mockData";
 
-// MongoDB connection string - in a real app, this would be in an environment variable
+// MongoDB connection string - this should be an environment variable in a real app
+// Connect to your MongoDB instance - Replace with your actual MongoDB connection string
 const MONGODB_URI = "mongodb://localhost:27017";
 const DB_NAME = "BookComass";
 const BOOKS_COLLECTION = "books";
 const USERS_COLLECTION = "users";
 
-// MongoDB client instance
-let client: MongoClient | null = null;
+// API endpoint for your server-side MongoDB connection
+// In a real app, you should have a server that handles these requests
+const API_ENDPOINT = "http://localhost:3001/api";
 
-// Since we're running in the browser where MongoDB can't connect directly,
-// we'll use the mock data instead of trying to connect to a real MongoDB instance
-const connectToMongoDB = async (): Promise<MongoClient | null> => {
-  console.log("Using mock data instead of MongoDB connection");
-  return null;
-};
-
-// Initialize database with mock data if collections are empty
-const initializeDatabaseIfEmpty = async () => {
-  // In browser environment, this is a no-op
-  console.log("Mock initialization");
+// Function to fetch data from the server API
+const fetchFromApi = async (endpoint: string, options = {}) => {
+  try {
+    console.log(`Fetching from API: ${endpoint}`);
+    const response = await fetch(`${API_ENDPOINT}/${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error(`Error fetching from API (${endpoint}):`, error);
+    
+    // If the server is unavailable, fall back to mock data
+    console.warn("API server unavailable, using mock data instead");
+    throw error;
+  }
 };
 
 // Local storage fallback for user data
@@ -61,45 +76,20 @@ const initializeUser = (): User => {
   return newUser;
 };
 
-// Helper function to convert MongoDB document to User type
-const convertDocToUser = (doc: WithId<Document>): User => {
-  return {
-    id: doc._id.toString(),
-    preferences: {
-      genres: doc.preferences?.genres || [],
-      authors: doc.preferences?.authors || []
-    },
-    history: {
-      viewed: doc.history?.viewed || [],
-      rated: doc.history?.rated || [],
-      timeSpent: doc.history?.timeSpent || []
-    }
-  };
-};
-
-// Helper function to convert MongoDB document to Book type
-const convertDocToBook = (doc: WithId<Document>): Book => {
-  return {
-    id: doc._id.toString(),
-    title: doc.title,
-    author: doc.author,
-    coverImage: doc.coverImage,
-    description: doc.description,
-    genres: doc.genres,
-    rating: doc.rating,
-    releaseDate: doc.releaseDate,
-    pages: doc.pages
-  };
-};
-
 // Get user data
 export const getUserData = async (): Promise<User> => {
   try {
-    // Skip MongoDB connection attempt in browser and use localStorage directly
-    return initializeUser();
+    // First try to get data from API
+    try {
+      const userData = await fetchFromApi('users/current');
+      return userData;
+    } catch (error) {
+      console.warn("Failed to get user from API, using localStorage instead:", error);
+      return initializeUser();
+    }
   } catch (error) {
     console.error("Failed to get user data:", error);
-    // Fall back to localStorage if MongoDB fails
+    // Fall back to localStorage if API fails
     return initializeUser();
   }
 };
@@ -107,11 +97,20 @@ export const getUserData = async (): Promise<User> => {
 // Update user preferences
 export const updateUserPreferences = async (genres: string[], authors: string[] = []): Promise<void> => {
   try {
-    // In browser environment, update localStorage directly
     const user = await getUserData();
     user.preferences.genres = genres;
     user.preferences.authors = authors;
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+    
+    // Try API first
+    try {
+      await fetchFromApi('users/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({ genres, authors })
+      });
+    } catch (error) {
+      console.warn("Failed to update user preferences via API, using localStorage instead:", error);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+    }
   } catch (error) {
     console.error("Failed to update user preferences:", error);
   }
@@ -120,16 +119,27 @@ export const updateUserPreferences = async (genres: string[], authors: string[] 
 // Record book view
 export const recordBookView = async (bookId: string): Promise<void> => {
   try {
-    const user = await getUserData();
-    const now = Date.now();
-    
-    const bookInteraction: BookInteraction = {
-      bookId,
-      timestamp: now
-    };
-    
-    user.history.viewed.push(bookInteraction);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+    // Try API first
+    try {
+      await fetchFromApi('interactions/view', {
+        method: 'POST',
+        body: JSON.stringify({ bookId })
+      });
+    } catch (error) {
+      console.warn("Failed to record book view via API, using localStorage instead:", error);
+      
+      // Fall back to localStorage
+      const user = await getUserData();
+      const now = Date.now();
+      
+      const bookInteraction: BookInteraction = {
+        bookId,
+        timestamp: now
+      };
+      
+      user.history.viewed.push(bookInteraction);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+    }
   } catch (error) {
     console.error("Failed to record book view:", error);
   }
@@ -138,27 +148,38 @@ export const recordBookView = async (bookId: string): Promise<void> => {
 // Record book rating
 export const recordBookRating = async (bookId: string, rating: number): Promise<void> => {
   try {
-    const user = await getUserData();
-    const now = Date.now();
-    
-    // Check if book was already rated and update if so
-    const existingRatingIndex = user.history.rated.findIndex(r => r.bookId === bookId);
-    
-    if (existingRatingIndex >= 0) {
-      user.history.rated[existingRatingIndex] = {
-        bookId,
-        rating,
-        timestamp: now
-      };
-    } else {
-      user.history.rated.push({
-        bookId,
-        rating,
-        timestamp: now
+    // Try API first
+    try {
+      await fetchFromApi('interactions/rate', {
+        method: 'POST',
+        body: JSON.stringify({ bookId, rating })
       });
+    } catch (error) {
+      console.warn("Failed to record book rating via API, using localStorage instead:", error);
+      
+      // Fall back to localStorage
+      const user = await getUserData();
+      const now = Date.now();
+      
+      // Check if book was already rated and update if so
+      const existingRatingIndex = user.history.rated.findIndex(r => r.bookId === bookId);
+      
+      if (existingRatingIndex >= 0) {
+        user.history.rated[existingRatingIndex] = {
+          bookId,
+          rating,
+          timestamp: now
+        };
+      } else {
+        user.history.rated.push({
+          bookId,
+          rating,
+          timestamp: now
+        });
+      }
+      
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
     }
-    
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
   } catch (error) {
     console.error("Failed to record book rating:", error);
   }
@@ -167,39 +188,79 @@ export const recordBookRating = async (bookId: string, rating: number): Promise<
 // Record time spent on book
 export const recordTimeSpent = async (bookId: string, duration: number): Promise<void> => {
   try {
-    const user = await getUserData();
-    const now = Date.now();
-    
-    // Check if we already have a record for this book and update
-    const existingTimeIndex = user.history.timeSpent.findIndex(t => t.bookId === bookId);
-    
-    if (existingTimeIndex >= 0) {
-      user.history.timeSpent[existingTimeIndex].duration += duration;
-      user.history.timeSpent[existingTimeIndex].timestamp = now;
-    } else {
-      user.history.timeSpent.push({
-        bookId,
-        duration,
-        timestamp: now
+    // Try API first
+    try {
+      await fetchFromApi('interactions/time', {
+        method: 'POST',
+        body: JSON.stringify({ bookId, duration })
       });
+    } catch (error) {
+      console.warn("Failed to record time spent via API, using localStorage instead:", error);
+      
+      // Fall back to localStorage
+      const user = await getUserData();
+      const now = Date.now();
+      
+      // Check if we already have a record for this book and update
+      const existingTimeIndex = user.history.timeSpent.findIndex(t => t.bookId === bookId);
+      
+      if (existingTimeIndex >= 0) {
+        user.history.timeSpent[existingTimeIndex].duration += duration;
+        user.history.timeSpent[existingTimeIndex].timestamp = now;
+      } else {
+        user.history.timeSpent.push({
+          bookId,
+          duration,
+          timestamp: now
+        });
+      }
+      
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
     }
-    
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
   } catch (error) {
     console.error("Failed to record time spent:", error);
   }
 };
 
-// Get all books from MongoDB
+// Helper function to convert MongoDB document to Book type
+const convertApiBookToBook = (apiBook: any): Book => {
+  return {
+    id: apiBook._id || apiBook.id,
+    title: apiBook.title,
+    author: apiBook.author,
+    coverImage: apiBook.coverImage,
+    description: apiBook.description,
+    genres: apiBook.genres,
+    rating: apiBook.rating,
+    releaseDate: apiBook.releaseDate,
+    pages: apiBook.pages
+  };
+};
+
+// Get all books
 export const getAllBooks = async (): Promise<Book[]> => {
-  console.log("Getting all books from mock data");
-  // Use mock data directly instead of trying to query MongoDB
-  return mockBooks;
+  try {
+    console.log("Attempting to get books from MongoDB API");
+    const booksData = await fetchFromApi('books');
+    console.log(`Received ${booksData.length} books from API`);
+    return booksData.map(convertApiBookToBook);
+  } catch (error) {
+    console.error("Failed to get books from API, falling back to mock data:", error);
+    console.log("Using mock data instead");
+    return mockBooks;
+  }
 };
 
 // Get a single book by ID
 export const getBookById = async (id: string): Promise<Book | undefined> => {
-  console.log("Getting book by ID from mock data:", id);
-  // Use mock data directly
-  return mockBooks.find(book => book.id === id);
+  try {
+    console.log(`Attempting to get book with ID ${id} from MongoDB API`);
+    const bookData = await fetchFromApi(`books/${id}`);
+    console.log("Book data received from API:", bookData);
+    return convertApiBookToBook(bookData);
+  } catch (error) {
+    console.error(`Failed to get book ${id} from API, falling back to mock data:`, error);
+    console.log("Looking for book in mock data instead");
+    return mockBooks.find(book => book.id === id);
+  }
 };

@@ -10,6 +10,7 @@ import BookGrid from "../components/BookGrid";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 
 const Explore = () => {
   const [books, setBooks] = useState<Book[]>([]);
@@ -35,7 +36,7 @@ const Explore = () => {
         console.log(`Fetching books for genre: ${selectedGenre}`);
         fetchedBooks = await getBooksByGenre(selectedGenre);
       } else {
-        console.log("Fetching all books");
+        console.log("Fetching all books from database");
         fetchedBooks = await getAllBooks();
       }
       
@@ -46,6 +47,7 @@ const Explore = () => {
         toast.error("No books found in database");
       } else {
         setBooks(fetchedBooks);
+        toast.success(`Found ${fetchedBooks.length} books in the database`);
       }
     } catch (error) {
       console.error("Error loading books:", error);
@@ -84,7 +86,7 @@ const Explore = () => {
         >
           <h1 className="text-3xl font-bold mb-4">Explore Books</h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Discover books by genre or search for your favorites
+            Discover books by genre or search for your favorites from the database
           </p>
         </motion.div>
         
@@ -191,11 +193,11 @@ const Explore = () => {
         ) : (
           <BookGrid 
             books={filteredBooks}
-            title={selectedGenre ? `${selectedGenre} Books` : "All Books"}
+            title={selectedGenre ? `${selectedGenre} Books` : "Database Books"}
             subtitle={
               searchQuery 
                 ? `Search results for "${searchQuery}"` 
-                : `${filteredBooks.length} books available`
+                : `${filteredBooks.length} books available in database`
             }
           />
         )}
