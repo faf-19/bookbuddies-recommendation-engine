@@ -139,23 +139,17 @@ export const updateUserPreferences = async (genres: string[], authors: string[] 
     const db = client.db(DB_NAME);
     const user = await getUserData();
     
-    if (ObjectId.isValid(user.id)) {
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: new ObjectId(user.id) },
-        { $set: {
-          "preferences.genres": genres,
-          "preferences.authors": authors
-        }}
-      );
-    } else {
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: user.id },
-        { $set: {
-          "preferences.genres": genres,
-          "preferences.authors": authors
-        }}
-      );
-    }
+    const query = ObjectId.isValid(user.id) 
+      ? { _id: new ObjectId(user.id) } 
+      : { _id: user.id };
+    
+    await db.collection(USERS_COLLECTION).updateOne(
+      query,
+      { $set: {
+        "preferences.genres": genres,
+        "preferences.authors": authors
+      }}
+    );
   } catch (error) {
     console.error("Failed to update user preferences:", error);
     // Fall back to localStorage if MongoDB fails
@@ -174,27 +168,21 @@ export const recordBookView = async (bookId: string): Promise<void> => {
     const user = await getUserData();
     const now = Date.now();
     
-    if (ObjectId.isValid(user.id)) {
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: new ObjectId(user.id) },
-        { $push: {
-          "history.viewed": {
-            bookId,
-            timestamp: now
-          } as BookInteraction
-        }}
-      );
-    } else {
-      await db.collection(USERS_COLLECTION).updateOne(
-        { _id: user.id },
-        { $push: {
-          "history.viewed": {
-            bookId,
-            timestamp: now
-          } as BookInteraction
-        }}
-      );
-    }
+    const bookInteraction: BookInteraction = {
+      bookId,
+      timestamp: now
+    };
+    
+    const query = ObjectId.isValid(user.id) 
+      ? { _id: new ObjectId(user.id) } 
+      : { _id: user.id };
+    
+    await db.collection(USERS_COLLECTION).updateOne(
+      query,
+      { $push: {
+        "history.viewed": bookInteraction
+      }}
+    );
   } catch (error) {
     console.error("Failed to record book view:", error);
     // Fall back to localStorage if MongoDB fails
@@ -221,52 +209,33 @@ export const recordBookRating = async (bookId: string, rating: number): Promise<
     // First, check if the book was already rated
     const existingRating = user.history.rated.find(r => r.bookId === bookId);
     
-    if (ObjectId.isValid(user.id)) {
-      if (existingRating) {
-        // Update existing rating
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: new ObjectId(user.id), "history.rated.bookId": bookId },
-          { $set: {
-            "history.rated.$.rating": rating,
-            "history.rated.$.timestamp": now
-          }}
-        );
-      } else {
-        // Add new rating
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: new ObjectId(user.id) },
-          { $push: {
-            "history.rated": {
-              bookId,
-              rating,
-              timestamp: now
-            } as BookRating
-          }}
-        );
-      }
+    if (existingRating) {
+      // Update existing rating
+      await db.collection(USERS_COLLECTION).updateOne(
+        { _id: ObjectId.isValid(user.id) ? new ObjectId(user.id) : user.id, "history.rated.bookId": bookId },
+        { $set: {
+          "history.rated.$.rating": rating,
+          "history.rated.$.timestamp": now
+        }}
+      );
     } else {
-      if (existingRating) {
-        // Update existing rating
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: user.id, "history.rated.bookId": bookId },
-          { $set: {
-            "history.rated.$.rating": rating,
-            "history.rated.$.timestamp": now
-          }}
-        );
-      } else {
-        // Add new rating
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: user.id },
-          { $push: {
-            "history.rated": {
-              bookId,
-              rating,
-              timestamp: now
-            } as BookRating
-          }}
-        );
-      }
+      // Add new rating
+      const bookRating: BookRating = {
+        bookId,
+        rating,
+        timestamp: now
+      };
+      
+      const query = ObjectId.isValid(user.id) 
+        ? { _id: new ObjectId(user.id) } 
+        : { _id: user.id };
+        
+      await db.collection(USERS_COLLECTION).updateOne(
+        query,
+        { $push: {
+          "history.rated": bookRating
+        }}
+      );
     }
   } catch (error) {
     console.error("Failed to record book rating:", error);
@@ -306,50 +275,32 @@ export const recordTimeSpent = async (bookId: string, duration: number): Promise
     // Check if we already have a record for this book
     const existingTimeSpent = user.history.timeSpent.find(t => t.bookId === bookId);
     
-    if (ObjectId.isValid(user.id)) {
-      if (existingTimeSpent) {
-        // Update existing time spent
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: new ObjectId(user.id), "history.timeSpent.bookId": bookId },
-          { $inc: { "history.timeSpent.$.duration": duration },
-            $set: { "history.timeSpent.$.timestamp": now }
-          }
-        );
-      } else {
-        // Add new time spent record
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: new ObjectId(user.id) },
-          { $push: {
-            "history.timeSpent": {
-              bookId,
-              duration,
-              timestamp: now
-            } as BookTimeSpent
-          }}
-        );
-      }
+    if (existingTimeSpent) {
+      // Update existing time spent
+      await db.collection(USERS_COLLECTION).updateOne(
+        { _id: ObjectId.isValid(user.id) ? new ObjectId(user.id) : user.id, "history.timeSpent.bookId": bookId },
+        { $inc: { "history.timeSpent.$.duration": duration },
+          $set: { "history.timeSpent.$.timestamp": now }
+        }
+      );
     } else {
-      if (existingTimeSpent) {
-        // Update existing time spent
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: user.id, "history.timeSpent.bookId": bookId },
-          { $inc: { "history.timeSpent.$.duration": duration },
-            $set: { "history.timeSpent.$.timestamp": now }
-          }
-        );
-      } else {
-        // Add new time spent record
-        await db.collection(USERS_COLLECTION).updateOne(
-          { _id: user.id },
-          { $push: {
-            "history.timeSpent": {
-              bookId,
-              duration,
-              timestamp: now
-            } as BookTimeSpent
-          }}
-        );
-      }
+      // Add new time spent record
+      const bookTimeSpent: BookTimeSpent = {
+        bookId,
+        duration,
+        timestamp: now
+      };
+      
+      const query = ObjectId.isValid(user.id) 
+        ? { _id: new ObjectId(user.id) } 
+        : { _id: user.id };
+      
+      await db.collection(USERS_COLLECTION).updateOne(
+        query,
+        { $push: {
+          "history.timeSpent": bookTimeSpent
+        }}
+      );
     }
   } catch (error) {
     console.error("Failed to record time spent:", error);
